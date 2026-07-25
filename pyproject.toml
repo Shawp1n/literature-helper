@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "literature-helper"
 version = "0.7.1"
-description = "A human-friendly and agent-ready CLI for personal literature requests."
+description = "An AI4CAE original literature tool with TUI, CLI, and Python API."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
