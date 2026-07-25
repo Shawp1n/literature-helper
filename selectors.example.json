@@ -1,0 +1,163 @@
+{
+  "login_email_inputs": [
+    "#LAY-user-login-email",
+    "input[name=\"email\"]",
+    "input[placeholder=\"邮箱\"]"
+  ],
+  "login_password_inputs": [
+    "#LAY-user-login-password",
+    "input[name=\"password\"]",
+    "input[type=\"password\"]"
+  ],
+  "login_remember_inputs": [
+    "input[name=\"remember\"]"
+  ],
+  "login_submit_buttons": [
+    "#login-form button[type=\"submit\"]",
+    "#login-form button:has-text(\"登 录\")",
+    "button:has-text(\"登录\")"
+  ],
+  "login_error_markers": [
+    ".layui-layer-content",
+    ".help-block",
+    ".alert-danger",
+    "text=/邮箱或密码.*(?:错误|不正确)/",
+    "text=/登录失败/"
+  ],
+  "query_inputs": [
+    "input[placeholder*=\"DOI\"]",
+    "textarea[placeholder*=\"DOI\"]",
+    "input[placeholder*=\"标题\"]",
+    "textarea[placeholder*=\"标题\"]"
+  ],
+  "intelligent_extract_buttons": [
+    "button:has-text(\"智能提取文献信息\")",
+    "a:has-text(\"智能提取文献信息\")",
+    "input[value*=\"智能提取文献信息\"]"
+  ],
+  "extracted_publish_buttons": [
+    "button:has-text(\"信息正确，直接发布\")",
+    "a:has-text(\"信息正确，直接发布\")",
+    "input[value*=\"信息正确，直接发布\"]"
+  ],
+  "lookup_buttons": [
+    "button:has-text(\"查询\")",
+    "button:has-text(\"智能识别\")"
+  ],
+  "result_items": [
+    "[data-paper-id]",
+    ".paper-card",
+    ".search-result-item",
+    "[role=\"option\"]"
+  ],
+  "confirm_buttons": [
+    "button:has-text(\"确认文献\")",
+    "button:has-text(\"确认信息\")",
+    "button:has-text(\"下一步\")"
+  ],
+  "publish_buttons": [
+    "button:has-text(\"立即发布\")",
+    "button:has-text(\"发布求助\")"
+  ],
+  "success_markers": [
+    "text=\"发布成功\"",
+    "text=\"等待应助\"",
+    "text=\"求助详情\""
+  ],
+  "post_publish_detail_buttons": [
+    "button:has-text(\"查看求助详情\")",
+    "a:has-text(\"查看求助详情\")",
+    "text=\"查看求助详情\""
+  ],
+  "upload_notice_markers": [
+    "text=/已经有人上传了文件.*48\\s*小时内查看并审核/"
+  ],
+  "upload_notice_confirm_buttons": [
+    ".layui-layer:has-text(\"已经有人上传了文件\") .layui-layer-btn0",
+    "[role=\"dialog\"]:has-text(\"已经有人上传了文件\") button:has-text(\"确定\")"
+  ],
+  "download_links": [
+    "a:has-text(\".pdf\")",
+    "a:has-text(\"下载应助文件\")",
+    "a:has-text(\"下载文件\")",
+    "a[href*=\"/assist/download\"]",
+    "a[href*=\".pdf\"]",
+    "a[href$=\".pdf\"]"
+  ],
+  "high_speed_channels": [
+    "#download-highspeed-direct",
+    "button.download-progress-highspeed-button",
+    "button[data-highspeed-action]",
+    "#download-switch-vip",
+    "button:has-text(\"高速通道\")",
+    "a:has-text(\"高速通道\")",
+    "[role=\"button\"]:has-text(\"高速通道\")",
+    "text=/高速通道/",
+    "text=\"高速通道\""
+  ],
+  "normal_download_channels": [
+    "button:has-text(\"线路\")",
+    "a:has-text(\"线路\")",
+    "text=/^线路\\d+$/"
+  ],
+  "pending_review_markers": [
+    "text=/请先.*确认.*求助/",
+    "text=/存在.*待确认/",
+    "text=/先确认.*才能下载/"
+  ],
+  "pending_review_tabs": [
+    "button:has-text(\"待确认\")",
+    "a:has-text(\"待确认\")",
+    "[role=\"tab\"]:has-text(\"待确认\")",
+    "text=\"待确认\""
+  ],
+  "pending_review_rows": [
+    "tbody tr:has-text(\"待确认\")",
+    "table tr:has-text(\"待确认\")",
+    "tr:has-text(\"待确认\")",
+    "[role=\"row\"]:has-text(\"待确认\")"
+  ],
+  "accept_file_buttons": [
+    "button:has-text(\"采纳文件\")",
+    "a:has-text(\"采纳文件\")",
+    "text=\"采纳文件\""
+  ],
+  "accept_confirmation_buttons": [
+    ".layui-layer:has-text(\"确认接受应助吗\") .layui-layer-btn0",
+    ".layui-layer:has-text(\"接受应助\") .layui-layer-btn0",
+    ".layui-layer:has-text(\"确认接受应助吗\") a:has-text(\"确定\")",
+    ".layui-layer-btn a.layui-layer-btn0",
+    ".modal:has-text(\"确认接受应助吗\") button:has-text(\"确定\")",
+    ".modal-dialog:has-text(\"确认接受应助吗\") button:has-text(\"确定\")",
+    "[role=\"dialog\"]:has-text(\"确认接受应助吗\") button:has-text(\"确定\")",
+    ".layui-layer:has-text(\"采纳\") .layui-layer-btn0",
+    "[role=\"dialog\"]:has-text(\"采纳\") button:has-text(\"确定\")",
+    "button:has-text(\"确认采纳\")",
+    "button:has-text(\"确定\")"
+  ],
+  "accepted_markers": [
+    "text=\"已采纳\"",
+    "text=\"已完结\"",
+    "text=\"采纳成功\""
+  ],
+  "acceptance_success_markers": [
+    "text=\"操作成功，感谢使用科研通\"",
+    ".layui-layer:has-text(\"操作成功，感谢使用科研通\")"
+  ],
+  "acceptance_success_buttons": [
+    ".layui-layer:has-text(\"操作成功，感谢使用科研通\") .layui-layer-btn0",
+    ".layui-layer:has-text(\"操作成功，感谢使用科研通\") a:has-text(\"确定\")",
+    ".layui-layer:has-text(\"操作成功\") .layui-layer-btn0"
+  ],
+  "captcha_markers": [
+    "iframe[src*=\"captcha\"]",
+    "[class*=\"captcha\"]",
+    "input[placeholder*=\"验证码\"]"
+  ],
+  "blocked_markers": [
+    "text=\"操作过于频繁\"",
+    "text=\"请求过于频繁\"",
+    "text=\"账号被封禁\"",
+    "text=\"暂时无法发布\""
+  ]
+}
