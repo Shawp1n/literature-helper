@@ -24,6 +24,10 @@
     "text=/邮箱或密码.*(?:错误|不正确)/",
     "text=/登录失败/"
   ],
+  "account_points_values": [
+    "div:has-text(\"您当前的总积分为\") span.text-bold.text-danger",
+    "div:has-text(\"您当前的总积分为\") span"
+  ],
   "query_inputs": [
     "input[placeholder*=\"DOI\"]",
     "textarea[placeholder*=\"DOI\"]",

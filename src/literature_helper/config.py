@@ -8,28 +8,24 @@ from pathlib import Path
 from typing import Any
 
 
+class ConfigError(ValueError):
+    """Configuration content is invalid or cannot be interpreted safely."""
+
+
 def default_home() -> Path:
     """Return the per-user data directory without creating it."""
-    override = os.environ.get("LITHELPER_HOME") or os.environ.get("KEYANTONG_HOME")
+    override = os.environ.get("LITHELPER_HOME")
     if override:
         return Path(override).expanduser().resolve()
 
     system = platform.system()
     if system == "Darwin":
-        new_home = Path.home() / "Library" / "Application Support" / "literature-helper"
-        legacy_home = Path.home() / "Library" / "Application Support" / "keyantong-helper"
-    elif system == "Windows":
+        return Path.home() / "Library" / "Application Support" / "literature-helper"
+    if system == "Windows":
         root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        new_home = root / "literature-helper"
-        legacy_home = root / "keyantong-helper"
-    else:
-        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-        new_home = root / "literature-helper"
-        legacy_home = root / "keyantong-helper"
-
-    # Existing users keep their browser session and task history without a
-    # destructive directory move. New installations use the new product name.
-    return legacy_home if legacy_home.exists() and not new_home.exists() else new_home
+        return root / "literature-helper"
+    root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return root / "literature-helper"
 
 
 @dataclass(slots=True)
@@ -43,9 +39,10 @@ class AppConfig:
 
     assist_url: str = "https://www.ablesci.com/assist/create"
     my_assists_url: str = "https://www.ablesci.com/my/assist-my"
+    points_url: str = "https://www.ablesci.com/my/point"
     login_url: str = "https://www.ablesci.com/site/login"
     browser_channel: str | None = "chrome"
-    headless: bool = False
+    headless: bool = True
     slow_mo_ms: int = 0
 
     initial_poll_delay_seconds: float = 8.0
@@ -81,7 +78,7 @@ class AppConfig:
         allowed = {item.name for item in fields(cls)}
         unknown = sorted(set(raw) - allowed)
         if unknown:
-            raise ValueError(f"配置文件包含未知字段: {', '.join(unknown)}")
+            raise ConfigError(f"配置文件包含未知字段: {', '.join(unknown)}")
 
         merged: dict[str, Any] = asdict(default)
         merged.update(raw)
@@ -103,21 +100,23 @@ class AppConfig:
 
     def validate(self) -> None:
         if self.poll_interval_seconds < 3:
-            raise ValueError("poll_interval_seconds 不能小于 3 秒，以避免高频刷新站点")
+            raise ConfigError("poll_interval_seconds 不能小于 3 秒，以避免高频刷新站点")
         if self.initial_poll_delay_seconds < 0:
-            raise ValueError("initial_poll_delay_seconds 不能为负数")
+            raise ConfigError("initial_poll_delay_seconds 不能为负数")
         if self.poll_timeout_seconds <= 0:
-            raise ValueError("poll_timeout_seconds 必须大于 0")
+            raise ConfigError("poll_timeout_seconds 必须大于 0")
         if self.download_timeout_seconds <= 0:
-            raise ValueError("download_timeout_seconds 必须大于 0")
+            raise ConfigError("download_timeout_seconds 必须大于 0")
         if self.minimum_pdf_bytes < 1_024:
-            raise ValueError("minimum_pdf_bytes 不能小于 1024")
+            raise ConfigError("minimum_pdf_bytes 不能小于 1024")
         if not self.assist_url.startswith("https://www.ablesci.com/"):
-            raise ValueError("assist_url 必须是 https://www.ablesci.com/ 下的地址")
+            raise ConfigError("assist_url 必须是 https://www.ablesci.com/ 下的地址")
         if not self.my_assists_url.startswith("https://www.ablesci.com/"):
-            raise ValueError("my_assists_url 必须是 https://www.ablesci.com/ 下的地址")
+            raise ConfigError("my_assists_url 必须是 https://www.ablesci.com/ 下的地址")
+        if not self.points_url.startswith("https://www.ablesci.com/"):
+            raise ConfigError("points_url 必须是 https://www.ablesci.com/ 下的地址")
         if not self.login_url.startswith("https://www.ablesci.com/"):
-            raise ValueError("login_url 必须是 https://www.ablesci.com/ 下的地址")
+            raise ConfigError("login_url 必须是 https://www.ablesci.com/ 下的地址")
 
     def ensure_directories(self) -> None:
         for path in (

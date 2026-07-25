@@ -16,7 +16,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from .models import LiteratureMetadata, classify_query
+from .models import AccountPoints, LiteratureMetadata, classify_query
 
 
 class SiteAdapterError(RuntimeError):
@@ -78,6 +78,12 @@ class SiteSelectors:
             '.alert-danger',
             'text=/邮箱或密码.*(?:错误|不正确)/',
             'text=/登录失败/',
+        ]
+    )
+    account_points_values: list[str] = field(
+        default_factory=lambda: [
+            'div:has-text("您当前的总积分为") span.text-bold.text-danger',
+            'div:has-text("您当前的总积分为") span',
         ]
     )
     query_inputs: list[str] = field(
@@ -337,6 +343,7 @@ class AbleSciAdapter:
         selectors: SiteSelectors,
         assist_url: str,
         my_assists_url: str,
+        points_url: str,
         login_url: str,
         headless: bool,
         debug_dir: Path,
@@ -347,6 +354,7 @@ class AbleSciAdapter:
         self.selectors = selectors
         self.assist_url = assist_url
         self.my_assists_url = my_assists_url
+        self.points_url = points_url
         self.login_url = login_url
         self.headless = headless
         self.debug_dir = debug_dir
@@ -373,6 +381,62 @@ class AbleSciAdapter:
             return await password.is_visible(timeout=500)
         except PlaywrightTimeoutError:
             return False
+
+    async def account_points(self, page: Page) -> AccountPoints:
+        await page.goto(
+            self.points_url,
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        if await self.is_login_page(page):
+            raise LoginRequired("科研通登录状态已失效，请先登录账号")
+        if "/my/point" not in page.url:
+            raise PageStructureChanged(
+                f"未能进入科研通积分详情页，当前地址: {page.url}"
+            )
+
+        value = await self._first_visible(
+            page,
+            self.selectors.account_points_values,
+            3_000,
+        )
+        if value is None:
+            raise PageStructureChanged("科研通积分详情页中没有找到总积分")
+        text = " ".join((await value.inner_text()).split())
+        match = re.search(r"-?\d[\d,，]*", text)
+        if match is None:
+            raise PageStructureChanged(f"科研通总积分无法识别: {text!r}")
+        return AccountPoints(
+            total=int(match.group().replace(",", "").replace("，", ""))
+        )
+
+    async def open_check_in_page(self, page: Page) -> None:
+        """Open the official page where the user can check in manually."""
+        await page.goto(
+            urljoin(self.points_url, "/"),
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        if await self.is_login_page(page):
+            raise LoginRequired("科研通登录状态已失效，请先登录账号")
+        if urlparse(page.url).path not in ("", "/"):
+            raise PageStructureChanged(
+                f"未能进入科研通签到页面，当前地址: {page.url}"
+            )
+
+    async def open_points_recharge_page(self, page: Page) -> None:
+        """Open AbleSci's official points donation page without submitting it."""
+        await page.goto(
+            urljoin(self.points_url, "/my/point-donate"),
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        if await self.is_login_page(page):
+            raise LoginRequired("科研通登录状态已失效，请先登录账号")
+        if "/my/point-donate" not in page.url:
+            raise PageStructureChanged(
+                f"未能进入科研通积分充值页面，当前地址: {page.url}"
+            )
 
     async def interactive_login(self, page: Page) -> None:
         if self.headless:
@@ -1365,7 +1429,11 @@ _METADATA_SNAPSHOT_SCRIPT = """
 
   return {
     fields,
-    text: (scope.innerText || "").slice(0, 20000),
+    text: (
+      (document.body && document.body.innerText)
+      || (document.documentElement && document.documentElement.innerText)
+      || ""
+    ).slice(0, 20000),
   };
 }
 """
@@ -1434,6 +1502,13 @@ def _metadata_from_snapshot(
     if url is None:
         candidate = _value_after_label(metadata_text, ("网址", "链接", "URL"))
         match = re.search(r"https?://\S+", candidate or "")
+        url = match.group().rstrip(".,;，。") if match else None
+    if url is None:
+        match = re.search(
+            r"https?://(?:dx\.)?doi\.org/10\.\d{4,9}/\S+",
+            metadata_text,
+            re.IGNORECASE,
+        )
         url = match.group().rstrip(".,;，。") if match else None
 
     journal = journal or _value_after_prefixed_label(

@@ -6,18 +6,18 @@
 ━━┛┛ ┛ ┛ ┛━━┛━━┛┛  ━━┛┛ ┛
 ```
 
-一个同时面向普通用户和自动化系统的 Python + Playwright 文献工具。普通用户
-可以通过方向键 TUI 完成登录、下载、恢复和历史记录管理；脚本与 Agent 则使用
-确定性 CLI、JSON 输出或 Python API。
+一个同时面向普通用户、自动化脚本和 Agent 的 Python + Playwright 工具模块。
+项目只有三种调用模态，它们共享同一套应用核心：
 
-项目提供三种等价入口：
+| 模态 | 入口 | 主要调用者 | 交互与输出 |
+| --- | --- | --- | --- |
+| TUI | `lithelper` | 日常使用者 | 方向键菜单、页面式导航 |
+| CLI | `lithelper fetch ...` | 熟练用户、Shell、CI、Agent | 人类表格或确定性 JSON |
+| Python API | `literature_helper.LiteratureHelper` | Python 程序、服务、Agent Runtime | 带类型对象，不解析终端文本 |
 
-- 日常使用：直接运行 `lithelper` 打开 TUI；
-- 熟练用户：`lithelper fetch ...` 等子命令；
-- 脚本调用：`literature_helper.LiteratureHelper` Python API；
-- Agent 编排：CLI 的 `--json --non-interactive` 结构化模式。
-
-核心代码不依赖任何 AI 或 Agent 框架，后续可以按需作为普通工具接入其他系统。
+Agent 的 `--format json --non-interactive` 是 CLI 模态的结构化运行方式，不是第四种
+接口。
+核心代码不依赖任何 AI 或 Agent 框架，后续可以按需接入任意编排系统。
 
 ## 工作流程
 
@@ -29,7 +29,11 @@
 6. 点击 PDF，优先选择高速通道；
 7. 下载后检查 PDF 文件头、大小、可读性、页数和 SHA-256；
 8. 保存任务记录并发送系统通知；
-9. 本次不立即采纳；下一次 `fetch` 前统一处理历史待确认项。
+9. 本次不立即采纳；下一次 `fetch` 前统一处理历史待确认项；
+10. 顺便刷新当前账号积分；积分查询失败不影响文献任务结果。
+
+需要多篇时使用顺序队列：每篇完整执行上述流程后才进入下一篇，绝不并发发布；
+遇到等待超时、取消或失败时立即停止后续队列。
 
 程序不会调用外部文献接口，不绕过验证码，也不会保存科研通账号密码。
 
@@ -90,29 +94,53 @@ lithelper
 在真实终端中会显示方向键菜单：
 
 ```text
-❯ 获取文献
-  历史任务与下载记录
-  恢复网站已有求助
-  批量采纳历史待确认
-  登录账号（密码不保存）
+❯ 账号管理
+  下载文献
+  历史记录
   设置
-  环境检查
   退出
 ```
 
-第一次启动会引导设置下载目录和默认运行模式，并可立即输入科研通邮箱与密码。
+所有选择菜单都会显示标题和方向键说明，并在提示行与菜单项之间保留一行空白，
+包括主菜单及全部二级、深层菜单。二级及更深菜单可以按 `Esc` 立即返回上一级，
+无需再按 Enter；主界面的 `Esc` 不执行退出，避免误操作。
+
+主界面只保留这五个高频入口。恢复未完成求助和处理历史待确认收纳在
+“历史记录”二级菜单，环境检查收纳在“设置”中；CLI 和 Python API 仍保留全部
+功能。界面把三行固定 Logo、运行模式和下载目录收纳在同一个响应式外框中，
+上方显示金色 Logo，下方以灰色显示英文状态信息；状态标签和值之间使用灰色竖线
+分隔，例如 `MODE │ HEADLESS`。外框以及嵌入右下方边框的名称与版本号使用白色，
+横线从文字两侧贯穿。功能菜单仍使用中文。外框会按终端宽度调整，并按实际字符宽度裁剪过长路径，
+中文目录不会挤断右边框。方向键在菜单首尾处停止，不会从第一项跳到最后一项或
+反向循环；设置页在每次操作后整页重绘。
+账号、下载、历史记录和设置均采用页面式导航，执行结果会保留到用户按下 Enter，
+返回上一级后立即清屏重绘，不会累计已经完成的选择、输入或过程日志。这里吸收了
+成熟 TUI 工具的页面生命周期经验，但不依赖或复制其源码：交互菜单、页头、过程
+输出和清屏指令统一写入 `stdout`；每次换页会同时清除当前可视区和滚动缓冲区，
+避免较长的详情页在返回菜单后残留在上方，同时不创建额外的备用屏幕或输出通道。
+所有“按 Enter 返回…”提示与上方结果内容之间固定保留一个空行。
+
+第一次启动会引导设置下载目录和默认运行模式（默认无界面），并可立即输入科研通邮箱与密码。
 密码只用于当次登录请求，不会写入配置、SQLite、日志或命令历史；工具保存的是
 网站返回的浏览器会话。遇到验证码时可从登录菜单选择“打开浏览器手动登录”。
 
 TUI 中可以：
 
-- 输入 DOI 或准确标题并下载文献；
+- 从“账号管理”登录账号；“积分管理”内含“积分刷新 / 积分签到 / 积分充值”；
+- 从“下载文献”子菜单输入 DOI 或准确标题并下载；可选择“返回”，文本输入时也可
+  按 `Esc` 回到下载子菜单；
+- 从“顺序下载多篇”逐行输入最多 10 个 DOI 或标题，空行结束输入；开始前会显示
+  完整队列并再次确认；
 - 选择无界面或显示浏览器模式；
-- 查看最近 50 条任务、文献信息、PDF 检查结果和事件记录；
-- 恢复网站上已经发布的求助；
-- 采纳、标记有误或解除遗留任务；
-- 修改下载目录、等待时间和高速通道偏好；
-- 检查依赖、配置和登录会话目录。
+- “查看任务与下载记录”按时间倒序显示编号后的文献标题；标题缺失的旧任务会回退
+  显示 DOI 或原始输入；
+- 上下选择标题并回车后，查看智能识别保存的标题、DOI、链接、期刊、作者、
+  出版日期、年份、数据来源和识别时间，以及任务状态、PDF 和事件；
+- 任务详情下方可以删除本地历史记录及其事件；已下载的 PDF 和科研通网站求助
+  不会被删除；
+- 在“历史记录”中恢复求助并处理待确认项；
+- 在“设置”中修改下载目录、运行模式、等待时间和高速通道偏好；
+- 在“设置”中检查依赖、配置和登录会话目录。
 
 TUI 只是调用公共 API 的展示层，不包含独立的业务流程。
 
@@ -151,6 +179,27 @@ lithelper login --manual-browser
 
 不要同步或提交该目录。
 
+登录后可随时查询当前总积分：
+
+```bash
+lithelper points
+```
+
+该命令只读取科研通的“积分详情”页，不执行签到、转移或其他积分操作。
+
+签到和充值使用可视浏览器：
+
+```bash
+lithelper check-in
+lithelper recharge
+```
+
+科研通的签到说明明确要求不可利用程序自动签到，因此工具只打开签到页面，由你
+手动点击“今日打卡签到”。充值同样只打开科研通官方页面，由你核对金额并完成
+支付；工具不会填写金额、提交订单或接触支付信息。完成或取消后回到终端按
+Enter（期间保持浏览器窗口打开），程序会刷新并显示当前积分。这两个动作不能
+使用 `--non-interactive`。
+
 ## 日常使用
 
 使用 DOI：
@@ -164,6 +213,18 @@ lithelper fetch "10.1038/s41586-024-00000-0"
 ```bash
 lithelper fetch "Exact title of the paper"
 ```
+
+顺序下载多篇（每个标题作为一个带引号的参数）：
+
+```bash
+lithelper fetch-many \
+  "10.1038/s41586-024-00000-0" \
+  "Exact title of another paper"
+```
+
+单次队列最多 10 篇，队列内不允许重复。程序一次只处理一篇；当前篇成功下载后，
+下一篇才会开始。为处理上一篇下载后的待确认状态，顺序队列要求保持默认的
+`auto_accept_historical_pending: true`，或者启用下载后立即采纳。
 
 无界面运行：
 
@@ -240,6 +301,13 @@ async def main() -> None:
         headless=True,
     )
 
+    points = await app.account_points(headless=True)
+    print(points.total)
+
+    # 以下两项会打开浏览器并等待用户手动操作：
+    # await app.check_in()
+    # await app.recharge_points()
+
     task = await app.fetch(
         "10.1016/j.example",
         headless=True,
@@ -249,6 +317,15 @@ async def main() -> None:
         print(task.literature.title)
         print(task.literature.authors)
 
+    queue = await app.fetch_many(
+        [
+            "10.1000/first",
+            "Exact title of the second paper",
+        ],
+        headless=True,
+    )
+    print(queue.to_dict())
+
 
 asyncio.run(main())
 ```
@@ -256,6 +333,10 @@ asyncio.run(main())
 常用方法：
 
 - `await app.fetch(...)`
+- `await app.fetch_many([...])`
+- `await app.account_points(...)`
+- `await app.check_in()`（人工浏览器操作）
+- `await app.recharge_points()`（人工浏览器操作）
 - `await app.recover(...)`
 - `await app.accept_all()`
 - `await app.confirm(task_id)`
@@ -263,23 +344,31 @@ asyncio.run(main())
 - `app.task_details(task_id)`
 - `app.reject(task_id, reason=...)`
 - `app.cancel(task_id)`
+- `app.delete_task(task_id)`（只删除本地记录和事件，保留 PDF）
 
 API 默认不打印过程日志。需要日志时传入 `LiteratureHelper(output=print)`。
 
-## Agent 与结构化 CLI
+## CLI 的 Agent 调用模式
 
-全局 `--json` 让标准输出只包含 JSON，过程日志改写到标准错误，便于 shell、
-调度器或其他程序稳定调用：
+`--format json`（简写 `-f json`）让标准输出只包含 JSON，过程日志改写到标准
+错误，便于 Shell、调度器或其他程序稳定调用。格式参数可以写在子命令前后：
 
 ```bash
-lithelper --json --non-interactive fetch "10.xxxx/example"
-lithelper --json --non-interactive list
-lithelper --json --non-interactive show TASK_ID
+lithelper --format json --non-interactive fetch "10.xxxx/example"
+lithelper fetch-many "10.xxxx/one" "10.xxxx/two" -f json --non-interactive
+lithelper points -f json --non-interactive
+lithelper list -f json --non-interactive
+lithelper show TASK_ID -f json --non-interactive
 ```
 
+原有 `--json` 仍作为 `--format json` 的兼容别名保留。
 `--non-interactive` 保证程序不会等待终端输入；`fetch` 会自动使用 Headless 模式。
-`recover`、`confirm` 和 `accept-all` 也会无界面运行。登录失效、验证码或必须
+`points`、`recover`、`confirm` 和 `accept-all` 也会无界面运行。登录失效、验证码或必须
 人工确认时会立即以非零退出码返回结构化错误。Agent 不应解析或操纵 TUI。
+
+`fetch-many` 返回 `FetchQueueResult`，包含原始顺序、已经产生的任务、
+`successful_count`、停止位置和结构化错误。队列中断时，Agent 应检查结果后再决定
+是否提交剩余项目，不应盲目重跑整个队列。
 
 `fetch` 返回的任务记录和 `show` 结果都包含 `literature`。这部分数据直接来自
 科研通“智能提取文献信息”后填入页面的内容：
@@ -316,6 +405,10 @@ API 获取。
   "error": {
     "type": "LoginRequired",
     "message": "科研通登录状态已失效"
+  },
+  "meta": {
+    "command": "fetch",
+    "exit_code": 77
   }
 }
 ```
@@ -349,7 +442,6 @@ literature-helper/
 │   ├── storage.py             # SQLite 任务、文献信息与事件记录
 │   ├── pdfcheck.py            # PDF 文件头、大小、可读性和哈希检查
 │   └── notifier.py            # macOS、Windows、Linux 本地系统通知
-├── src/keyantong_helper/      # 0.x Python 导入兼容层，不含业务代码
 └── tests/                     # 不访问真实网站的单元与工作流回归测试
 ```
 
@@ -360,13 +452,14 @@ literature-helper/
 
 这套结构也适合类似的小型 Python 工具：
 
-1. `api.py` 是唯一推荐给外部程序使用的入口；
-2. `cli.py` 和 `tui.py` 都只把用户输入转换为 API 调用；
-3. `workflow.py` 只编排步骤，不处理终端菜单；
-4. 外部网站或服务细节隔离在 `adapter.py`；
-5. 输入和输出使用带类型的数据对象；
+1. `api.py` 是三个模态共同依赖的应用门面；
+2. `cli.py` 和 `tui.py` 只把输入转换为 API 调用，不直接访问存储或网站；
+3. `workflow.py` 只编排步骤，不处理终端菜单和输出格式；
+4. 外部网站或服务细节隔离在 `adapter.py`，持久化隔离在 `storage.py`；
+5. 输入和输出使用带类型的数据对象，JSON 只在 CLI 边界序列化；
 6. 运行数据放在系统用户目录，不写入源码目录；
-7. Agent 只使用非交互 CLI 或 Python API。
+7. Agent 只使用非交互 CLI 或 Python API，不解析 TUI；
+8. README 集中说明使用与架构，接口变更需要同步测试。
 
 这种边界既方便人阅读和测试，也允许未来被任何外部框架包装，而无需改写核心逻辑。
 
@@ -378,7 +471,7 @@ literature-helper/
 {
   "download_dir": "/Users/me/Downloads/科研通",
   "browser_channel": "chrome",
-  "headless": false,
+  "headless": true,
   "initial_poll_delay_seconds": 8.0,
   "poll_interval_seconds": 3.0,
   "poll_timeout_seconds": 180.0,
@@ -394,10 +487,7 @@ literature-helper/
 ```
 
 可通过 `--config /path/to/config.json` 使用其他配置，也可以设置
-`LITHELPER_HOME` 改变默认数据目录。旧版 `KEYANTONG_HOME` 仍然兼容。
-
-升级用户会继续使用原来的 `keyantong-helper` 数据目录，以保留任务数据库和
-浏览器登录会话；全新安装使用 `literature-helper` 数据目录。
+`LITHELPER_HOME` 改变默认数据目录。
 
 任务、提取到的文献信息与事件保存在 `tasks.sqlite3`。程序会自动兼容并升级
 旧数据库结构。主要状态：
@@ -413,10 +503,10 @@ literature-helper/
 
 ## 使用边界
 
-本工具只面向本人、单篇、个人学习研究用途：
+本工具只面向本人、小规模、个人学习研究用途：
 
 - 优先使用 DOI，标题应准确且唯一；
-- 不批量发布、不高频刷新、不替他人求助；
+- 多篇功能只允许最多 10 篇的顺序队列，不并发发布、不高频刷新、不替他人求助；
 - 不传播或用于盈利；
 - 轮询间隔硬性限制为不低于 3 秒；
 - 验证码和网站规则确认始终保留人工处理；
@@ -437,19 +527,3 @@ pytest
 ```
 
 自动化测试不会真实发布求助。
-
-## 旧名称兼容
-
-0.x 版本使用过的 `keyantong` 命令、`keyantong_helper` Python 导入和
-`Keyantong` 类名暂时保留为兼容别名：
-
-```bash
-keyantong list
-```
-
-```python
-from keyantong_helper import Keyantong
-```
-
-新代码统一使用 `lithelper`、`literature_helper` 和 `LiteratureHelper`。兼容层
-只转发到新实现，不复制业务代码。

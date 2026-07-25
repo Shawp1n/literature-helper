@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Awaitable, Callable
 
 from playwright.async_api import BrowserContext, Page, async_playwright
 
@@ -14,7 +14,15 @@ from .adapter import (
     SiteSelectors,
 )
 from .config import AppConfig
-from .models import LiteratureMetadata, Task, TaskStatus, normalize_query
+from .models import (
+    AccountPoints,
+    FetchQueueResult,
+    LiteratureMetadata,
+    Task,
+    TaskStatus,
+    normalize_queries,
+    normalize_query,
+)
 from .notifier import notify
 from .pdfcheck import validate_pdf
 from .storage import TaskStore
@@ -43,6 +51,7 @@ class LiteratureWorkflow:
             selectors=SiteSelectors.load(config.selectors_path),
             assist_url=config.assist_url,
             my_assists_url=config.my_assists_url,
+            points_url=config.points_url,
             login_url=config.login_url,
             headless=config.headless,
             debug_dir=config.debug_dir,
@@ -81,6 +90,46 @@ class LiteratureWorkflow:
                 self.output("登录状态已保存在本地浏览器用户目录。")
             finally:
                 await self._safe_close_context(context)
+
+    async def account_points(
+        self,
+        *,
+        headless: bool | None = None,
+    ) -> AccountPoints:
+        """Read the current points for the saved AbleSci login session."""
+        self.config.ensure_directories()
+        effective_headless = self.config.headless if headless is None else headless
+        self.adapter.headless = effective_headless
+        async with async_playwright() as playwright:
+            context = await self._launch_context(
+                playwright,
+                headless=effective_headless,
+            )
+            try:
+                page = context.pages[0] if context.pages else await context.new_page()
+                return await self.adapter.account_points(page)
+            finally:
+                await self._safe_close_context(context)
+
+    async def check_in(self) -> AccountPoints:
+        """Let the user complete AbleSci's daily check-in in a visible browser."""
+        return await self._manual_points_action(
+            self.adapter.open_check_in_page,
+            instruction=(
+                "已打开科研通首页。请按网站规则手动点击“今日打卡签到”；"
+                "程序不会代替你自动签到。"
+            ),
+        )
+
+    async def recharge_points(self) -> AccountPoints:
+        """Let the user complete a points purchase on AbleSci's official page."""
+        return await self._manual_points_action(
+            self.adapter.open_points_recharge_page,
+            instruction=(
+                "已打开科研通官方积分充值页面。请自行核对金额并完成支付；"
+                "程序不会填写金额、提交订单或接触支付信息。"
+            ),
+        )
 
     async def run(
         self,
@@ -239,12 +288,14 @@ class LiteratureWorkflow:
                     timeout_seconds=self.config.poll_timeout_seconds,
                     on_poll=on_poll,
                 )
-                return await self._download_and_validate(
+                result = await self._download_and_validate(
                     task,
                     page,
                     link,
                     download_dir=options.download_dir,
                 )
+                await self._refresh_points_best_effort(context)
+                return result
         except asyncio.CancelledError:
             self.store.update(
                 task.id,
@@ -281,6 +332,70 @@ class LiteratureWorkflow:
         finally:
             if context is not None:
                 await self._safe_close_context(context)
+
+    async def run_many(
+        self,
+        queries: list[str],
+        *,
+        auto_publish: bool | None = None,
+        download_dir: Path | None = None,
+        headless: bool | None = None,
+        allow_repeat: bool = False,
+    ) -> FetchQueueResult:
+        """Run a small queue strictly one item at a time."""
+        normalized = normalize_queries(queries)
+        if (
+            len(normalized) > 1
+            and not self.config.auto_accept_after_validation
+            and not self.config.auto_accept_historical_pending
+        ):
+            raise ValueError(
+                "顺序下载多篇需要启用 auto_accept_historical_pending，"
+                "否则第一篇的待确认状态会阻止下一篇"
+            )
+
+        result = FetchQueueResult(queries=normalized)
+        total = len(normalized)
+        for index, query in enumerate(normalized, start=1):
+            self.output(f"顺序下载：开始第 {index}/{total} 篇 · {query}")
+            try:
+                task = await self.run(
+                    query,
+                    auto_publish=auto_publish,
+                    download_dir=download_dir,
+                    headless=headless,
+                    allow_repeat=allow_repeat,
+                )
+            except Exception as exc:
+                result.stopped_query = query
+                result.error = {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+                self.output(
+                    f"顺序下载已在第 {index}/{total} 篇停止："
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return result
+
+            result.tasks.append(task)
+            if task.status not in {
+                TaskStatus.DOWNLOADED_PENDING_REVIEW,
+                TaskStatus.CONFIRMED,
+            }:
+                result.stopped_query = query
+                result.error = {
+                    "type": task.status.value,
+                    "message": task.error or f"任务状态为 {task.status.value}",
+                }
+                self.output(
+                    f"顺序下载已在第 {index}/{total} 篇停止："
+                    f"任务状态为 {task.status.value}"
+                )
+                return result
+            self.output(f"顺序下载：第 {index}/{total} 篇已完成")
+
+        return result
 
     async def recover(
         self,
@@ -349,12 +464,14 @@ class LiteratureWorkflow:
                     interval_seconds=self.config.poll_interval_seconds,
                     timeout_seconds=min(self.config.poll_timeout_seconds, 60),
                 )
-                return await self._download_and_validate(
+                result = await self._download_and_validate(
                     task,
                     page,
                     link,
                     download_dir=target_dir,
                 )
+                await self._refresh_points_best_effort(context)
+                return result
         except Exception as exc:
             if task is not None:
                 task = self.store.update(
@@ -576,6 +693,52 @@ class LiteratureWorkflow:
             if "closed" in message or "target page" in message:
                 return
             self.output(f"浏览器清理未完成，但任务结果已保留：{exc}")
+
+    async def _refresh_points_best_effort(
+        self,
+        context: BrowserContext,
+    ) -> AccountPoints | None:
+        """Refresh points after a document run without affecting its result."""
+        points_page: Page | None = None
+        try:
+            points_page = await context.new_page()
+            points = await self.adapter.account_points(points_page)
+            self.output(f"当前科研通积分：{points.total}")
+            return points
+        except Exception as exc:
+            self.output(
+                "积分更新未完成，但不影响本次文献结果"
+                f"（{type(exc).__name__}: {exc}）。"
+            )
+            return None
+        finally:
+            if points_page is not None:
+                try:
+                    await points_page.close()
+                except Exception:
+                    pass
+
+    async def _manual_points_action(
+        self,
+        open_page: Callable[[Page], Awaitable[None]],
+        *,
+        instruction: str,
+    ) -> AccountPoints:
+        self.config.ensure_directories()
+        self.adapter.headless = False
+        async with async_playwright() as playwright:
+            context = await self._launch_context(playwright, headless=False)
+            try:
+                page = context.pages[0] if context.pages else await context.new_page()
+                await open_page(page)
+                self.output(instruction)
+                await asyncio.to_thread(
+                    self.input_func,
+                    "请保持浏览器窗口打开；操作完成或决定取消后，回到终端按 Enter… ",
+                )
+                return await self.adapter.account_points(page)
+            finally:
+                await self._safe_close_context(context)
 
     async def _capture_and_report(self, page: Page, task_id: str) -> None:
         paths = await self.adapter.capture_debug(page, task_id)

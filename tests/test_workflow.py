@@ -4,7 +4,7 @@ import pytest
 from pypdf import PdfWriter
 
 from literature_helper.config import AppConfig
-from literature_helper.models import LiteratureMetadata, TaskStatus
+from literature_helper.models import AccountPoints, LiteratureMetadata, TaskStatus
 from literature_helper.workflow import LiteratureWorkflow, _merge_literature
 
 
@@ -138,6 +138,102 @@ async def test_login_rejects_partial_credentials(tmp_path):
 
     with pytest.raises(ValueError, match="同时提供"):
         await workflow.login(email="person@example.com")
+
+
+@pytest.mark.asyncio
+async def test_points_refresh_is_best_effort(tmp_path, monkeypatch):
+    messages = []
+    workflow = LiteratureWorkflow(
+        AppConfig.defaults(tmp_path / "app"),
+        output=messages.append,
+    )
+    page = type(
+        "Page",
+        (),
+        {"close": AsyncMock()},
+    )()
+    context = type(
+        "Context",
+        (),
+        {"new_page": AsyncMock(return_value=page)},
+    )()
+    monkeypatch.setattr(
+        workflow.adapter,
+        "account_points",
+        AsyncMock(return_value=AccountPoints(total=88)),
+    )
+
+    result = await workflow._refresh_points_best_effort(context)
+
+    assert result == AccountPoints(total=88, retrieved_at=result.retrieved_at)
+    assert messages == ["当前科研通积分：88"]
+    page.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_points_refresh_failure_does_not_raise(tmp_path, monkeypatch):
+    messages = []
+    workflow = LiteratureWorkflow(
+        AppConfig.defaults(tmp_path / "app"),
+        output=messages.append,
+    )
+    context = type(
+        "Context",
+        (),
+        {"new_page": AsyncMock(side_effect=RuntimeError("offline"))},
+    )()
+
+    result = await workflow._refresh_points_best_effort(context)
+
+    assert result is None
+    assert "不影响本次文献结果" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_queue_runs_strictly_in_order(tmp_path, monkeypatch):
+    messages = []
+    workflow = LiteratureWorkflow(
+        AppConfig.defaults(tmp_path / "app"),
+        output=messages.append,
+    )
+    first = workflow.store.create("10.1000/one")
+    second = workflow.store.create("10.1000/two")
+    first.status = TaskStatus.DOWNLOADED_PENDING_REVIEW
+    second.status = TaskStatus.CONFIRMED
+    run = AsyncMock(side_effect=[first, second])
+    monkeypatch.setattr(workflow, "run", run)
+
+    result = await workflow.run_many(
+        ["10.1000/one", "10.1000/two"],
+        headless=True,
+    )
+
+    assert result.completed is True
+    assert result.tasks == [first, second]
+    assert [call.args[0] for call in run.await_args_list] == [
+        "10.1000/one",
+        "10.1000/two",
+    ]
+    assert "第 1/2 篇" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_queue_stops_after_non_success_status(tmp_path, monkeypatch):
+    workflow = LiteratureWorkflow(AppConfig.defaults(tmp_path / "app"))
+    timed_out = workflow.store.create("10.1000/one")
+    timed_out.status = TaskStatus.TIMED_OUT
+    run = AsyncMock(return_value=timed_out)
+    monkeypatch.setattr(workflow, "run", run)
+
+    result = await workflow.run_many(
+        ["10.1000/one", "10.1000/two"],
+        headless=True,
+    )
+
+    assert result.completed is False
+    assert result.stopped_query == "10.1000/one"
+    assert result.error["type"] == TaskStatus.TIMED_OUT.value
+    assert run.await_count == 1
 
 
 def test_detail_metadata_completes_publish_page_metadata():

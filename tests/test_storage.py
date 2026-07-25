@@ -27,6 +27,40 @@ def test_task_lifecycle(tmp_path):
     assert store.active() == []
 
 
+def test_task_list_has_deterministic_newest_first_order(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    first = store.create("10.1000/first")
+    second = store.create("10.1000/second")
+
+    assert [task.id for task in store.list(limit=2)] == [second.id, first.id]
+
+
+def test_delete_task_cascades_events_but_preserves_downloaded_file(tmp_path):
+    database = tmp_path / "tasks.sqlite3"
+    store = TaskStore(database)
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    task = store.create("10.1000/example")
+    task = store.update(
+        task.id,
+        TaskStatus.DOWNLOADED_PENDING_REVIEW,
+        download_path=pdf,
+        message="downloaded",
+    )
+
+    deleted = store.delete(task.id)
+
+    assert deleted.id == task.id
+    assert store.list() == []
+    assert pdf.exists()
+    with sqlite3.connect(database) as connection:
+        event_count = connection.execute(
+            "SELECT COUNT(*) FROM events WHERE task_id = ?",
+            (task.id,),
+        ).fetchone()[0]
+    assert event_count == 0
+
+
 def test_validation_json_roundtrip(tmp_path):
     store = TaskStore(tmp_path / "tasks.sqlite3")
     task = store.create("Paper title")

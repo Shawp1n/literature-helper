@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -9,6 +10,11 @@ from typing import Any
 
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
+DOI_URL_PREFIX = re.compile(
+    r"^(?:https?://)?(?:dx\.)?doi\.org/",
+    re.IGNORECASE,
+)
+MAX_FETCH_QUEUE_ITEMS = 10
 
 
 class TaskStatus(StrEnum):
@@ -40,6 +46,17 @@ ACTIVE_STATUSES = {
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+@dataclass(frozen=True, slots=True)
+class AccountPoints:
+    """Current AbleSci points for the saved login session."""
+
+    total: int
+    retrieved_at: str = field(default_factory=utc_now)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(slots=True)
@@ -90,20 +107,42 @@ class LiteratureMetadata:
 
 
 def classify_query(value: str) -> str:
-    normalized = value.strip()
-    if normalized.lower().startswith("https://doi.org/"):
-        normalized = normalized[16:]
+    normalized = DOI_URL_PREFIX.sub("", value.strip(), count=1)
     return "doi" if DOI_PATTERN.fullmatch(normalized) else "title"
 
 
 def normalize_query(value: str) -> str:
     normalized = " ".join(value.strip().split())
-    if normalized.lower().startswith("https://doi.org/"):
-        normalized = normalized[16:]
+    normalized = DOI_URL_PREFIX.sub("", normalized, count=1)
     if not normalized:
         raise ValueError("DOI 或标题不能为空")
     if len(normalized) > 1_000:
         raise ValueError("输入过长；请输入单篇文献的 DOI 或准确标题")
+    return normalized
+
+
+def normalize_queries(values: Iterable[str]) -> list[str]:
+    """Normalize a small sequential queue and reject ambiguous duplicates."""
+    if isinstance(values, str):
+        raise ValueError("多篇下载需要字符串列表，不能传入单个字符串")
+    normalized = [normalize_query(value) for value in values]
+    if not normalized:
+        raise ValueError("顺序下载队列不能为空")
+    if len(normalized) > MAX_FETCH_QUEUE_ITEMS:
+        raise ValueError(
+            f"单次顺序下载最多 {MAX_FETCH_QUEUE_ITEMS} 篇，"
+            "请拆分队列以避免高频操作"
+        )
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for query in normalized:
+        key = query.casefold()
+        if key in seen and query not in duplicates:
+            duplicates.append(query)
+        seen.add(key)
+    if duplicates:
+        raise ValueError("顺序下载队列包含重复项：" + "；".join(duplicates))
     return normalized
 
 
@@ -129,3 +168,44 @@ class Task:
         if self.literature:
             data["literature"] = self.literature.to_dict()
         return data
+
+
+@dataclass(slots=True)
+class FetchQueueResult:
+    """Structured result for a strictly sequential literature queue."""
+
+    queries: list[str]
+    tasks: list[Task] = field(default_factory=list)
+    stopped_query: str | None = None
+    error: dict[str, str] | None = None
+
+    @property
+    def successful_count(self) -> int:
+        return sum(
+            task.status
+            in {
+                TaskStatus.DOWNLOADED_PENDING_REVIEW,
+                TaskStatus.CONFIRMED,
+            }
+            for task in self.tasks
+        )
+
+    @property
+    def completed(self) -> bool:
+        return (
+            self.error is None
+            and len(self.tasks) == len(self.queries)
+            and self.successful_count == len(self.queries)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "queries": list(self.queries),
+            "tasks": [task.to_dict() for task in self.tasks],
+            "total_count": len(self.queries),
+            "processed_count": len(self.tasks),
+            "successful_count": self.successful_count,
+            "completed": self.completed,
+            "stopped_query": self.stopped_query,
+            "error": self.error,
+        }

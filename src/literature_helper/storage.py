@@ -192,9 +192,17 @@ class TaskStore:
     def list(self, *, limit: int = 20) -> list[Task]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM tasks ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         return [self._row_to_task(row) for row in rows]
+
+    def delete(self, task_id: str) -> Task:
+        """Delete one local task and its events, preserving downloaded files."""
+        task = self.get(task_id)
+        with self._connect() as connection:
+            connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        return task
 
     def events(self, task_id: str) -> list[dict[str, Any]]:
         self.get(task_id)

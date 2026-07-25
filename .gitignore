@@ -9,5 +9,10 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-.keyantong-data/
 *.part
+
+# 忽略项目内文档规则
+openwiki/
+AGENTS.md
+ARCHITECTURE.md
+CLAUDE.md

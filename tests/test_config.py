@@ -10,6 +10,7 @@ def test_config_roundtrip(tmp_path):
     path = config.write()
     loaded = AppConfig.load(path)
     assert loaded.data_dir == config.data_dir
+    assert loaded.headless is True
     assert loaded.poll_interval_seconds == 3.0
     assert loaded.download_dir == config.download_dir
     assert loaded.prefer_high_speed_download is True
@@ -38,8 +39,7 @@ def test_rejects_non_ablesci_assist_url(tmp_path):
         AppConfig.load(path)
 
 
-def test_new_home_environment_variable_takes_precedence(tmp_path, monkeypatch):
+def test_home_environment_variable_sets_data_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("LITHELPER_HOME", str(tmp_path / "literature"))
-    monkeypatch.setenv("KEYANTONG_HOME", str(tmp_path / "legacy"))
 
     assert default_home() == (tmp_path / "literature").resolve()

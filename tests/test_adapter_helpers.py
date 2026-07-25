@@ -60,11 +60,36 @@ def make_adapter(tmp_path):
         selectors=SiteSelectors(),
         assist_url="https://www.ablesci.com/assist/create",
         my_assists_url="https://www.ablesci.com/my/assist-my",
+        points_url="https://www.ablesci.com/my/point",
         login_url="https://www.ablesci.com/site/login",
         headless=False,
         debug_dir=tmp_path,
         output=lambda _: None,
     )
+
+
+@pytest.mark.asyncio
+async def test_account_points_reads_total_from_points_page(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+
+    class Value:
+        async def inner_text(self):
+            return "1,234"
+
+    class Page:
+        url = "about:blank"
+
+        async def goto(self, url, **_kwargs):
+            self.url = url
+
+    page = Page()
+    monkeypatch.setattr(adapter, "is_login_page", AsyncMock(return_value=False))
+    monkeypatch.setattr(adapter, "_first_visible", AsyncMock(return_value=Value()))
+
+    result = await adapter.account_points(page)
+
+    assert page.url == "https://www.ablesci.com/my/point"
+    assert result.total == 1234
 
 
 @pytest.mark.asyncio
@@ -202,6 +227,36 @@ def test_metadata_snapshot_is_converted_to_structured_literature():
     assert literature.authors == ["Ada Lovelace", "Alan Turing"]
     assert literature.publication_date == "2024-10-01"
     assert literature.publication_year == 2024
+
+
+def test_detail_page_text_is_converted_to_complete_literature():
+    snapshot = {
+        "fields": [],
+        "text": (
+            "标题\n"
+            "Modeling and simulation of thermal management systems\n"
+            "https://doi.org/10.1016/j.est.2025.116011\n"
+            "DOI\n"
+            "10.1016/j.est.2025.116011 复制 doi\n"
+            "其它\t期刊：Journal of energy storage\n"
+            "作者：Ada Lovelace; Alan Turing\n"
+            "出版日期：2025-03-05"
+        ),
+    }
+
+    literature = _metadata_from_snapshot(
+        snapshot,
+        "doi.org/10.1016/j.est.2025.116011",
+    )
+
+    assert literature.title == (
+        "Modeling and simulation of thermal management systems"
+    )
+    assert literature.doi == "10.1016/j.est.2025.116011"
+    assert literature.url == "https://doi.org/10.1016/j.est.2025.116011"
+    assert literature.journal == "Journal of energy storage"
+    assert literature.authors == ["Ada Lovelace", "Alan Turing"]
+    assert literature.publication_date == "2025-03-05"
 
 
 def test_internal_publication_enum_is_not_reported_as_journal():
